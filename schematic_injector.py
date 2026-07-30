@@ -147,17 +147,66 @@ class SchematicInjector:
                 else: return
             with open(sch_path, "w", encoding="utf-8") as fw: fw.write(new_c)
 
+    def _find_symbol_block_by_uuid(self, content, u_id):
+        uuid_str = f'uuid "{u_id}"'
+        start_idx = content.find(uuid_str)
+        if start_idx == -1:
+            return None, -1, -1
+
+        # Walk backwards from start_idx to find the (symbol ... (lib_id ... block start
+        pos = content.rfind("(symbol", 0, start_idx)
+        block_start = -1
+        while pos != -1:
+            snippet = content[pos:start_idx]
+            if re.search(r'\(symbol\s+\(lib_id', snippet):
+                block_start = pos
+                break
+            pos = content.rfind("(symbol", 0, pos)
+
+        if block_start == -1:
+            return None, -1, -1
+
+        # Parse balanced parentheses to find block end
+        p_count = 0
+        block_end = -1
+        in_quote = False
+        escaped = False
+
+        for i in range(block_start, len(content)):
+            char = content[i]
+            if char == '"' and not escaped:
+                in_quote = not in_quote
+            if not in_quote:
+                if char == '(':
+                    p_count += 1
+                elif char == ')':
+                    p_count -= 1
+                    if p_count == 0:
+                        block_end = i + 1
+                        break
+            if char == '\\' and not escaped:
+                escaped = True
+            else:
+                escaped = False
+
+        if block_end == -1:
+            return None, -1, -1
+
+        return content[block_start:block_end], block_start, block_end
+
     def get_instance_info_by_uuid(self, project_path, u_id):
         sch_path = self.get_sch_path(project_path)
         if not sch_path: return None
         try:
             with open(sch_path, "r", encoding="utf-8") as f:
                 content = f.read()
-                # Find the symbol block containing this UUID
-                pattern = r'\(symbol \(lib_id ".*?"\).*?\(uuid "' + re.escape(u_id) + r'"\).*?\(property "Reference" "(.*?)"'
-                match = re.search(pattern, content, re.DOTALL)
-                return match.group(1) if match else None
-        except: return None
+            block, _, _ = self._find_symbol_block_by_uuid(content, u_id)
+            if not block: return None
+            match = re.search(r'\(property\s+"Reference"\s+"([^"]+)"', block)
+            return match.group(1) if match else None
+        except Exception as e:
+            self._log(f"get_instance_info_by_uuid error: {e}")
+            return None
 
     def remove_instance_by_uuid(self, project_path, u_id):
         sch_path = self.get_sch_path(project_path)
@@ -166,53 +215,73 @@ class SchematicInjector:
             with open(sch_path, "r", encoding="utf-8") as f:
                 content = f.read()
             
-            # Find the start of the symbol block that contains this UUID
-            # We look for the symbol definition that wraps our target UUID
-            start_idx = content.find(f'uuid "{u_id}"')
-            if start_idx == -1: return False
-            
-            # Walk backwards to find the start of the (symbol ...) block
-            block_start = content.rfind("(symbol (lib_id", 0, start_idx)
-            if block_start == -1: return False
-            
-            # Walk forwards to find the matching closing parenthesis of the block
-            p_count = 0
-            block_end = -1
-            in_quote = False
-            escaped = False
-            
-            for i in range(block_start, len(content)):
-                char = content[i]
-                
-                if char == '"' and not escaped:
-                    in_quote = not in_quote
-                
-                if not in_quote:
-                    if char == '(': p_count += 1
-                    elif char == ')':
-                        p_count -= 1
-                        if p_count == 0:
-                            block_end = i + 1
-                            break
-                
-                if char == '\\' and not escaped:
-                    escaped = True
-                else:
-                    escaped = False
-            
-            if block_end != -1:
-                new_content = content[:block_start] + content[block_end:]
-                # Clean up potential double newlines
-                new_content = new_content.replace("\n\n\n", "\n\n")
-                with open(sch_path, "w", encoding="utf-8") as f:
-                    f.write(new_content)
-                self._log(f"Physically removed instance {u_id} from schematic.")
-                return True
+            block, block_start, block_end = self._find_symbol_block_by_uuid(content, u_id)
+            if block_start == -1 or block_end == -1: return False
+
+            new_content = content[:block_start] + content[block_end:]
+            # Clean up potential double newlines
+            new_content = new_content.replace("\n\n\n", "\n\n")
+            with open(sch_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            self._log(f"Physically removed instance {u_id} from schematic.")
+            return True
         except Exception as e:
             self._log(f"Remove instance error: {e}")
-        return False
+            return False
+
+    def get_all_placed_jlc_symbols(self, project_path):
+        sch_path = self.get_sch_path(project_path)
+        if not sch_path or not os.path.exists(sch_path): return []
+        try:
+            with open(sch_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            pos = content.find("(symbol")
+            symbols_found = []
+
+            while pos != -1:
+                snippet = content[pos:pos+200]
+                if re.search(r'\(symbol\s+\(lib_id', snippet):
+                    p_count = 0; block_end = -1; in_quote = False; escaped = False
+                    for i in range(pos, len(content)):
+                        char = content[i]
+                        if char == '"' and not escaped: in_quote = not in_quote
+                        if not in_quote:
+                            if char == '(': p_count += 1
+                            elif char == ')':
+                                p_count -= 1
+                                if p_count == 0: block_end = i + 1; break
+                        if char == '\\' and not escaped: escaped = True
+                        else: escaped = False
+
+                    if block_end != -1:
+                        block = content[pos:block_end]
+                        uuid_m = re.search(r'\(uuid\s+"([^"]+)"', block)
+                        jlc_m = re.search(r'\(property\s+"JLCPCB Part #"\s+"([^"]+)"', block) or re.search(r'\(property\s+"LCSC Part #"\s+"([^"]+)"', block)
+                        ref_m = re.search(r'\(property\s+"Reference"\s+"([^"]+)"', block)
+                        val_m = re.search(r'\(property\s+"Value"\s+"([^"]+)"', block)
+                        fp_m = re.search(r'\(property\s+"Footprint"\s+"([^"]+)"', block)
+                        mfr_m = re.search(r'\(property\s+"Manufacturer"\s+"([^"]+)"', block)
+
+                        if uuid_m and jlc_m:
+                            symbols_found.append({
+                                "uuid": uuid_m.group(1),
+                                "pcode": jlc_m.group(1),
+                                "ref": ref_m.group(1) if ref_m else "",
+                                "val": val_m.group(1) if val_m else "",
+                                "fp": fp_m.group(1) if fp_m else "",
+                                "mfr": mfr_m.group(1) if mfr_m else "N/A"
+                            })
+                        pos = block_end - 1
+
+                pos = content.find("(symbol", pos + 1)
+            return symbols_found
+        except Exception as e:
+            self._log(f"get_all_placed_jlc_symbols error: {e}")
+            return []
 
     def inject_instance_to_schematic(self, project_path, pcode, model_name, lib_name, prefix="U", manufacturer="N/A"):
+
         sch_path = self.get_sch_path(project_path)
         if not sch_path: return None
         try:
@@ -220,17 +289,17 @@ class SchematicInjector:
                 content = f.read()
                 
                 # 1. Smart Auto-Annotation
-                existing_refs = re.findall(rf'\(property "Reference" "{prefix}(\d+)"', content)
+                existing_refs = re.findall(rf'\(property\s+"Reference"\s+"{prefix}(\d+)"', content)
                 existing_nums = [int(n) for n in existing_refs]
                 next_num = max(existing_nums + [0]) + 1
                 ref_designator = f"{prefix}{next_num}"
 
                 # 2. Position calculation
-                count = content.count("(symbol (lib_id")
+                count = len(re.findall(r'\(symbol\s+\(lib_id', content))
                 x, y = 100 + (count % 10) * 40, 100 + (count // 10) * 40
                 u_id = str(uuid.uuid4())
                 
-                sch_uuid_match = re.search(r'\(uuid "(.*?)"\)', content)
+                sch_uuid_match = re.search(r'\(uuid\s+"(.*?)"\)', content)
                 sch_uuid = sch_uuid_match.group(1) if sch_uuid_match else str(uuid.uuid4())
                 
                 proj_name_raw = os.path.basename(project_path)
@@ -261,3 +330,4 @@ class SchematicInjector:
         except Exception as e:
             self._log(f"Inject instance error: {e}")
             return None
+

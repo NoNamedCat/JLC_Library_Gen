@@ -682,16 +682,70 @@ class EasyEDASearchDialog(wx.Dialog):
             return os.path.join(project_path, "jlc_components.json")
         except: return None
 
+    def _sync_components_from_schematic(self):
+        try:
+            board = pcbnew.GetBoard()
+            if not board: return
+            project_path = os.path.dirname(board.GetFileName())
+            if not project_path: return
+
+            symbols_found = self.injector.get_all_placed_jlc_symbols(project_path)
+            if not symbols_found: return
+
+            modified = False
+            for s in symbols_found:
+                pcode = s["pcode"]
+                u_id = s["uuid"]
+                
+                already_in_cart = any(u_id in item.get("placed_uuids", []) for item in self.cart_items)
+                if not already_in_cart:
+                    cart_p = next((item for item in self.cart_items if item["productCode"] == pcode), None)
+                    if cart_p:
+                        if "placed_uuids" not in cart_p: cart_p["placed_uuids"] = []
+                        if u_id not in cart_p["placed_uuids"]:
+                            cart_p["placed_uuids"].append(u_id)
+                            cart_p["qty"] = max(cart_p.get("qty", 1), len(cart_p["placed_uuids"]))
+                            modified = True
+                    else:
+                        encap = s["fp"].split(":")[-1] if ":" in s["fp"] else s["fp"]
+                        new_p = {
+                            "productModel": s["val"] or pcode,
+                            "friendlyValue": s["val"] or pcode,
+                            "productCode": pcode,
+                            "encapStandard": encap or "SMD",
+                            "type": "Extended",
+                            "stockNumber": 0,
+                            "price_val": 0.0,
+                            "brand": s["mfr"],
+                            "category": "Schematic Recovered",
+                            "attributes": [],
+                            "pdfUrl": "",
+                            "photoId": None,
+                            "qty": 1,
+                            "placed_uuids": [u_id]
+                        }
+                        self.cart_items.append(new_p)
+                        modified = True
+
+            if modified:
+                self._save_project_components()
+                self._log_to_console("Auto-synced and recovered components from schematic.")
+        except Exception as e:
+            self._log_to_console(f"Sync from schematic error: {e}")
+
+
     def _load_project_components(self):
         path = self._get_project_components_file()
         if path and os.path.exists(path):
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     self.cart_items = json.load(f)
-                self._update_cart_list_ui()
                 self._log_to_console(f"Loaded {len(self.cart_items)} components from project file.")
             except Exception as e:
                 self._log_to_console(f"Load error: {e}")
+
+        self._sync_components_from_schematic()
+        self._update_cart_list_ui()
 
     def _save_project_components(self):
         path = self._get_project_components_file()
@@ -702,6 +756,7 @@ class EasyEDASearchDialog(wx.Dialog):
                 # self._log_to_console("Project components saved.")
             except Exception as e:
                 self._log_to_console(f"Save error: {e}")
+
 
     def _update_cart_list_ui(self, selected_idx=-1):
         self.cart_list.DeleteAllItems()
@@ -986,73 +1041,72 @@ class EasyEDASearchDialog(wx.Dialog):
                 pcode = p["productCode"]
                 qty = p.get("qty", 1)
                 
-                # 1. Sync UUIDs with schematic (remove those that were deleted manually)
+                # 1. Sync UUIDs with schematic
                 placed_uuids = p.get("placed_uuids", [])
                 p["placed_uuids"] = [u for u in placed_uuids if self.injector.get_instance_info_by_uuid(project_path, u) is not None]
                 
-                # 2. Check if we need to add more instances
-                needed = qty - len(p["placed_uuids"])
-                if needed <= 0:
-                    self._log_to_console(f"Skipping {pcode}: All instances already in schematic.")
-                    continue
+                # 2. Check if we need to add more instances or if footprint file is missing
+                needed = max(0, qty - len(p["placed_uuids"]))
+                fp_file = os.path.join(master_fp_dir, f"{pcode}.kicad_mod")
+                fp_missing = not os.path.exists(fp_file)
 
-                wx.CallAfter(self.cad_status_text.SetLabel, f"Processing {i+1}/{len(self.cart_items)}: {pcode}")
-                
-                # 3. Check if library work is needed
                 lib_exists = False
                 try:
                     with open(master_sym_file, "r", encoding="utf-8") as f:
                         if f'(symbol "{pcode}"' in f.read(): lib_exists = True
                 except: pass
 
+                if needed <= 0 and not fp_missing and lib_exists:
+                    self._log_to_console(f"Skipping {pcode}: Library and all instances up to date.")
+                    continue
+
+                wx.CallAfter(self.cad_status_text.SetLabel, f"Processing {i+1}/{len(self.cart_items)}: {pcode}")
+                
+                # 3. Check if library work is needed (symbol or footprint file missing)
                 sym_block = None
-                if not lib_exists:
-                    # Download only if NOT in master library
+                if not lib_exists or fp_missing:
+                    # Download CAD and consolidate footprint/symbol
                     cad = self._fetch_easyeda_models(pcode)
-                    if not cad: continue
-                    
-                    norm_cad = cad.copy()
-                    if isinstance(norm_cad.get("dataStr"), str): norm_cad["dataStr"] = json.loads(norm_cad["dataStr"])
-                    if norm_cad.get("packageDetail") and isinstance(norm_cad["packageDetail"].get("dataStr"), str):
-                        norm_cad["packageDetail"]["dataStr"] = json.loads(norm_cad["packageDetail"]["dataStr"])
-                    
-                    EasyEDASearchDialog.cached_cad_data = norm_cad
-                    EasyedaApi.get_info_from_easyeda_api = lambda *args, **kwargs: {"result": EasyEDASearchDialog.cached_cad_data}
-                    
-                    temp_prefix = os.path.join(lib_path, f"_tmp_{pcode}")
-                    try: e2k_main.main(["--full", "--lcsc_id", pcode, "--output", temp_prefix, "--overwrite"])
-                    except: pass
-                    
-                    sym_block = self.injector.extract_and_fix_symbol_to_master(lib_path, pcode, lib_name)
-                    self.injector.consolidate_footprint_to_master(lib_path, pcode, master_fp_dir, lib_name)
-                    
-                    # Cleanup
-                    for f in os.listdir(lib_path):
-                        if f.startswith(f"_tmp_{pcode}"):
-                            path = os.path.join(lib_path, f)
-                            if os.path.isdir(path): shutil.rmtree(path)
-                            else: os.remove(path)
+                    if cad:
+                        norm_cad = cad.copy()
+                        if isinstance(norm_cad.get("dataStr"), str): norm_cad["dataStr"] = json.loads(norm_cad["dataStr"])
+                        if norm_cad.get("packageDetail") and isinstance(norm_cad["packageDetail"].get("dataStr"), str):
+                            norm_cad["packageDetail"]["dataStr"] = json.loads(norm_cad["packageDetail"]["dataStr"])
+                        
+                        EasyEDASearchDialog.cached_cad_data = norm_cad
+                        EasyedaApi.get_info_from_easyeda_api = lambda *args, **kwargs: {"result": EasyEDASearchDialog.cached_cad_data}
+                        
+                        temp_prefix = os.path.join(lib_path, f"_tmp_{pcode}")
+                        try: e2k_main.main(["--full", "--lcsc_id", pcode, "--output", temp_prefix, "--overwrite"])
+                        except: pass
+                        
+                        sym_block = self.injector.extract_and_fix_symbol_to_master(lib_path, pcode, lib_name)
+                        self.injector.consolidate_footprint_to_master(lib_path, pcode, master_fp_dir, lib_name)
+                        
+                        # Cleanup
+                        for f in os.listdir(lib_path):
+                            if f.startswith(f"_tmp_{pcode}"):
+                                path = os.path.join(lib_path, f)
+                                if os.path.isdir(path): shutil.rmtree(path)
+                                else: os.remove(path)
                 else:
-                    # Still need the sym_block for cache injection if it's missing in .kicad_sch
-                    # But if we skip, we assume it's already in the cache if the UUID is valid.
-                    # For new instances, we might need to extract it from the master file.
-                    self._log_to_console(f"Part {pcode} already in master library. Skipping download.")
                     sym_block = self._get_symbol_block_from_master(master_sym_file, pcode)
 
-                # 4. Inject ONLY the needed instances
-                if sym_block:
-                    self.injector.inject_symbol_to_cache(project_path, pcode, sym_block, lib_name)
-                    
-                prefix = self.injector.get_prefix(p)
-                for _ in range(needed):
-                    # Use friendlyValue (10k) instead of technical part number
-                    u_id = self.injector.inject_instance_to_schematic(
-                        project_path, pcode, p.get("friendlyValue", ""), lib_name, prefix,
-                        manufacturer=p.get("brand", "N/A")
-                    )
-                    if u_id: p["placed_uuids"].append(u_id)
+                # 4. Inject instances into schematic only if needed > 0
+                if needed > 0:
+                    if sym_block:
+                        self.injector.inject_symbol_to_cache(project_path, pcode, sym_block, lib_name)
+                        
+                    prefix = self.injector.get_prefix(p)
+                    for _ in range(needed):
+                        u_id = self.injector.inject_instance_to_schematic(
+                            project_path, pcode, p.get("friendlyValue", ""), lib_name, prefix,
+                            manufacturer=p.get("brand", "N/A")
+                        )
+                        if u_id: p["placed_uuids"].append(u_id)
                 
                 success_count += 1
+
             
             # Save the updated list (with UUIDs)
             self._save_project_components()
