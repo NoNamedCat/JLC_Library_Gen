@@ -449,11 +449,15 @@ class EasyEDASearchDialog(wx.Dialog):
                     self._log_to_console(f"Dependency '{pkg}' missing. Installing...")
                     try:
                         # Use sys.executable to ensure we use KiCad's python
-                        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
+                        kwargs = {}
+                        if sys.platform == "win32":
+                            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+                        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg], **kwargs)
                         self._log_to_console(f"Successfully installed '{pkg}'.")
                     except Exception as e:
                         self._log_to_console(f"Failed to install '{pkg}': {e}")
         threading.Thread(target=task, daemon=True).start()
+
     def on_show_log(self, e): dlg = LogConsoleDialog(self); dlg.log_ctrl.SetValue(self.log_buffer); dlg.ShowModal(); dlg.Destroy()
     
     def on_close_dialog(self, event):
