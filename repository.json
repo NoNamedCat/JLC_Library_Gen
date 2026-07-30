@@ -8,9 +8,9 @@
         }
     },
     "packages": {
-        "sha256": "692cc8afe491bfb890d317ac728e3c42c0bf4a859ac7cdf50cd345661ee15e66",
-        "update_time_utc": "2026-07-30 19:26:36",
-        "update_timestamp": 1785439596,
+        "sha256": "8c3f78cff6111f3a4fe6c515deb064014900024563ac47df8ea717265d2cee48",
+        "update_time_utc": "2026-07-30 19:44:00",
+        "update_timestamp": 1785440640,
         "url": "https://nonamedcat.github.io/JLC_Library_Gen/packages.json"
     }
 }
