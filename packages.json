@@ -1,0 +1,33 @@
+{
+    "packages": [
+        {
+            "$schema": "https://go.kicad.org/pcm/schemas/v1",
+            "name": "JLC Library Gen",
+            "description": "Search JLCPCB/LCSC components and inject them into your KiCad schematic.",
+            "description_full": "Search and download EasyEDA/JLCPCB components and automatically inject them into your KiCad schematic with footprints, 3D models and BOM properties.\n\nFeatures:\n- Search the JLCPCB/LCSC catalog\n- Auto-download symbols, footprints and 3D models\n- Inject components directly into the schematic\n- Auto-recover project components from the schematic on startup\n- Auto-install easyeda2kicad dependency silently",
+            "identifier": "com.github.nonamedcat.jlc-library-gen",
+            "type": "plugin",
+            "author": {
+                "name": "NoNamedCat",
+                "contact": {
+                    "web": "https://github.com/NoNamedCat/JLC_Library_Gen"
+                }
+            },
+            "license": "MIT",
+            "resources": {
+                "homepage": "https://github.com/NoNamedCat/JLC_Library_Gen"
+            },
+            "versions": [
+                {
+                    "version": "1.0.0",
+                    "status": "stable",
+                    "kicad_version": "7.0",
+                    "download_sha256": "ac20ee284b47d32d356da86148857438e7d3341b8213388d47b2ac58b4c6bad1",
+                    "download_url": "https://nonamedcat.github.io/JLC_Library_Gen/packages/com.github.nonamedcat.jlc-library-gen/JLC_Library_Gen_v1.0.0.zip",
+                    "download_size": 27376,
+                    "install_size": 95842
+                }
+            ]
+        }
+    ]
+}
