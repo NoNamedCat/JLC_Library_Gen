@@ -13,16 +13,8 @@
 
 ## 📸 Screenshots
 
-*(Espacio reservado para screenshots)*
+<img width="1286" height="884" alt="image" src="https://github.com/user-attachments/assets/448e8cb8-2283-4c42-9c55-3841efa3e18e" />
 
-> **Main Interface:**
-> [Insert Main UI Screenshot Here]
-
-> **Search Results:**
-> [Insert Search Results Screenshot Here]
-
-> **CAD Preview:**
-> [Insert CAD Preview Screenshot Here]
 
 ## 🛠 Installation
 
