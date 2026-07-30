@@ -440,6 +440,16 @@ class EasyEDASearchDialog(wx.Dialog):
 
     def _check_dependencies(self):
         def task():
+            # Resolve correct python.exe path regardless of KiCad's sys.executable quirks
+            import os, sys
+            exe_dir = os.path.dirname(sys.executable)
+            python_candidates = [
+                os.path.join(exe_dir, "python.exe"),          # KiCad bin dir
+                os.path.join(exe_dir, "python3.exe"),
+                sys.executable,                                # fallback
+            ]
+            python_exe = next((p for p in python_candidates if os.path.isfile(p)), sys.executable)
+
             deps = [("easyeda2kicad", "easyeda2kicad")]
             for pkg, imp in deps:
                 try:
@@ -448,11 +458,10 @@ class EasyEDASearchDialog(wx.Dialog):
                 except ImportError:
                     self._log_to_console(f"Dependency '{pkg}' missing. Installing...")
                     try:
-                        # Use sys.executable to ensure we use KiCad's python
                         kwargs = {}
                         if sys.platform == "win32":
                             kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-                        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg], **kwargs)
+                        subprocess.check_call([python_exe, "-m", "pip", "install", pkg], **kwargs)
                         self._log_to_console(f"Successfully installed '{pkg}'.")
                     except Exception as e:
                         self._log_to_console(f"Failed to install '{pkg}': {e}")
