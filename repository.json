@@ -1,0 +1,16 @@
+{
+    "$schema": "https://go.kicad.org/pcm/schemas/v1#/definitions/Repository",
+    "name": "NoNamedCat KiCad Plugins",
+    "maintainer": {
+        "name": "NoNamedCat",
+        "contact": {
+            "web": "https://github.com/NoNamedCat"
+        }
+    },
+    "packages": {
+        "sha256": "083cd1f030588691550cdf4c13da6165adefce7373dbc24263d81a065a9e47d1",
+        "update_time_utc": "2026-09-14 01:09:33",
+        "update_timestamp": 1789348173,
+        "url": "https://nonamedcat.github.io/JLC_Library_Gen/packages.json"
+    }
+}
