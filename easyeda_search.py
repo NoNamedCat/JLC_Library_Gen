@@ -1266,8 +1266,8 @@ class EasyEDASearchDialog(wx.Dialog):
             with open(table_path, "w", encoding="utf-8") as f:
                 f.write(content)
         
-        sym_rel = f"${{KIPROJMOD}}/{lib_name}/{lib_name}.kicad_sym"
-        fp_rel = f"${{KIPROJMOD}}/{lib_name}/{lib_name}.pretty"
+        sym_rel = f"${{KIPRJMOD}}/{lib_name}/{lib_name}.kicad_sym"
+        fp_rel = f"${{KIPRJMOD}}/{lib_name}/{lib_name}.pretty"
         
         clean_and_update_table(os.path.join(project_path, "fp-lib-table"), lib_name, fp_rel, "fp")
         clean_and_update_table(os.path.join(project_path, "sym-lib-table"), lib_name, sym_rel, "sym")
