@@ -1168,7 +1168,7 @@ class EasyEDASearchDialog(wx.Dialog):
 
             # Save the updated list (with UUIDs)
             self._save_project_components()
-            self._register_project_libraries(project_path, lib_name)
+            is_new_lib = self._register_project_libraries(project_path, lib_name)
             EasyedaApi.get_info_from_easyeda_api = original_get_info
 
             def finish_on_main_thread():
@@ -1201,12 +1201,31 @@ class EasyEDASearchDialog(wx.Dialog):
                         cart_p = next((it for it in self.cart_items if it["productCode"] == p["productCode"]), p)
                         self._update_instance_list_ui(cart_p)
 
-                wx.MessageBox(
-                    f"Success! Consolidated {success_count} parts into '{lib_name}'.\n\n"
-                    "Footprints placed on PCB and instances synchronized with schematic.",
-                    "Complete",
-                    wx.ICON_INFORMATION
-                )
+                if is_new_lib:
+                    msg = (
+                        f"Success! Consolidated {success_count} parts into '{lib_name}'.\n\n"
+                        "Footprints placed on PCB and instances synchronized with schematic.\n\n"
+                        "--------------------------------------------------\n"
+                        "⚠️ FIRST-TIME SETUP ACTION REQUIRED:\n"
+                        "KiCad must reload its library tables before you can use\n"
+                        "'Update PCB from Schematic' (F8).\n\n"
+                        "Please do ONE of the following to reload:\n"
+                        "  1. In KiCad: File -> Close Project, then reopen it (takes 1s)\n"
+                        "  2. In PCB Editor: Preferences -> Manage Footprint Libraries... -> Click OK\n\n"
+                        "(Note: Future components added to this project will be recognized automatically without reloading)."
+                    )
+                    wx.MessageBox(
+                        msg,
+                        "Library Initialized - Action Required",
+                        wx.ICON_INFORMATION
+                    )
+                else:
+                    wx.MessageBox(
+                        f"Success! Consolidated {success_count} parts into '{lib_name}'.\n\n"
+                        "Footprints placed on PCB and instances synchronized with schematic.",
+                        "Complete",
+                        wx.ICON_INFORMATION
+                    )
 
             wx.CallAfter(finish_on_main_thread)
         except Exception as e:
@@ -1231,6 +1250,17 @@ class EasyEDASearchDialog(wx.Dialog):
         except: return None
 
     def _register_project_libraries(self, project_path, lib_name):
+        fp_table_path = os.path.join(project_path, "fp-lib-table")
+        is_first_creation = True
+        if os.path.exists(fp_table_path):
+            try:
+                with open(fp_table_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    if f'(name "{lib_name}")' in content:
+                        is_first_creation = False
+            except Exception:
+                pass
+
         def clean_and_update_table(table_path, name, rel_uri, type_str):
             header = "sym_lib_table" if type_str == "sym" else "fp_lib_table"
             new_entry = f'  (lib (name "{name}")(type "KiCad")(uri "{rel_uri}")(options "")(descr "EasyEDA Consolidated {type_str}"))\n'
@@ -1271,4 +1301,6 @@ class EasyEDASearchDialog(wx.Dialog):
         
         clean_and_update_table(os.path.join(project_path, "fp-lib-table"), lib_name, fp_rel, "fp")
         clean_and_update_table(os.path.join(project_path, "sym-lib-table"), lib_name, sym_rel, "sym")
+
+        return is_first_creation
 
